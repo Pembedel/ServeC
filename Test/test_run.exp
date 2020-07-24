@@ -1,0 +1,13 @@
+#!/usr/bin/expect
+
+set timeout 2
+set max 101
+
+for {set i 1} {$i < $max} {incr i 1} {
+	spawn ./kvcli --server 127.0.0.1:1234 --set kapil$i abc$i
+
+	expect "Port number:1234, ipaddr:127.0.0.1"
+	expect "Message sent to Server:--set "
+	sleep 0.15
+}
+
