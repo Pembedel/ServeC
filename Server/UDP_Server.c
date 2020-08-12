@@ -35,6 +35,12 @@
 #define ENTRY_EXIST 1
 #define SUCCESS 0
 
+#define IPADDR 1
+#define PORTNUM 2
+
+#define MIN_PORTNO 1
+#define MAX_PORTNO 65535
+
 /* linked list for storing key-value pair*/
 struct node{
     char *key;
@@ -48,6 +54,7 @@ int add_entry(struct node** head, char* key, int key_len, char* value, int value
 int del_entry(struct node **head, char *key, int length);
 void del_all_entry(struct node **head);
 void error(char *msg);
+int validate_ip_addr(char *ip_addr);
 
 /** Functions **/
 
@@ -61,8 +68,10 @@ int main(int argc, char **argv)
     int value_len;
     int status = FAILURE;
     int entry_count = 0;
+    int count = 1;
     char buffer[MAXINPUT]; 
-    char ip_addr[15], port_num[15];
+    char *ip_addr;
+    char *port_num;
     char key[257];
     char value[257];
     char *split_str;
@@ -81,25 +90,50 @@ int main(int argc, char **argv)
 
     /*Separating ipaddr and portno from <ipaddr>:<portno> format*/    
     split_str = strtok(argv[1],":");
-    strncpy(ip_addr,split_str,strlen(split_str));
-    ip_addr[strlen(split_str)]='\0';
 
     while (split_str != NULL)
     {
-        strncpy(port_num,split_str,strlen(split_str));
-        port_num[strlen(split_str)]='\0';
-        split_str = strtok (NULL, " :");
+        switch (count)
+        {
+            case IPADDR:
+                ip_addr = (char*)malloc(strlen(split_str)+1);
+                strncpy(ip_addr,split_str,strlen(split_str)+1);
+                ip_addr[strlen(split_str)]='\0';
+            break;
+
+            case PORTNUM:
+                port_num = (char*)malloc(strlen(split_str)+1);
+                strncpy(port_num,split_str,strlen(split_str)+1);
+                port_num[strlen(split_str)]='\0';
+            break;
+
+            default:
+            break;
+        }
+        split_str = strtok (NULL, ":");
+        count++; 
     }
 
-    /* Validation of ip address and port number TODO: IP address is valid*/
-    if (port_num == NULL || ip_addr == NULL 
-        || strlen(ip_addr) < 7 || strlen(port_num)<2)
+    /* Validation of ip address and port number*/
+    if (port_num == NULL || ip_addr == NULL)
     {
         error("Incorrect IP addr and port input");
     }
+    else
+    {
+        portno = atoi(port_num);
+        
+        if (portno < MIN_PORTNO || portno > MAX_PORTNO)
+        {
+            error("portnumber invalid");
+        }
+        if(validate_ip_addr(ip_addr) != 0)
+        {
+            error("ip_address invalid");
+        }
+    }
 
-    portno = atoi(port_num);
-    printf("\nStarting Server on port number:%d, ipaddr:%s\n",portno, ip_addr);
+    printf("\nPort number:%d, ipaddr:%s",portno, ip_addr);
 
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) 
@@ -217,19 +251,76 @@ int main(int argc, char **argv)
             sendto(sockfd, (const char *)msg, strlen(msg), 
                     MSG_CONFIRM, (const struct sockaddr *) &cli_addr, len);                
         }
-        else
+        else if (strncmp(buffer,"--fin",5)==0)
         {
+            strcpy(msg,"FIN");
+            sendto(sockfd, (const char *)msg, strlen(msg), 
+                    MSG_CONFIRM, (const struct sockaddr *) &cli_addr, len);                
+
             /* Code execution should not reach here because validation 
                 is in place for cmd types*/
-            printf("no match for command");
+            printf("FIN received");
         }
-    }while(1);
+
+    }while(strncmp(buffer,"--fin",5)!=0);
     
+    del_all_entry(&head);
+    free(ip_addr);
+    free(port_num);
     close(sockfd);
-    /* TODO Free all entries in linked list to avoid memleak*/
-    /*del_all_entry(&head);*/
+
     return 0;
 } 
+
+/* Function: validate_ip_addr() - To validate IP addr 
+ * in parameters: 
+ *   ip_addr_in - IP addr to be validated
+ *
+ * return:
+ *   status of validation
+ */
+
+int validate_ip_addr(char *ip_addr_in)
+{
+    char *split_str;
+    int count = 0;
+    int temp_ip=0;
+    int status = 0;
+    char *ip_addr;
+
+    ip_addr = (char*)malloc(strlen(ip_addr_in)+1);
+    strncpy(ip_addr,ip_addr_in,strlen(ip_addr_in)+1);
+
+   /*Separating ipaddr based on <num>.<num>.<num>.<num> format*/    
+    split_str = strtok(ip_addr,".");
+
+    while (split_str != NULL)
+    {
+        status = FAILURE;
+
+        /* Only 3 dots in IP addr*/
+        if(count > 3)
+            break;
+
+        temp_ip = atoi(split_str);
+
+        if(temp_ip>=0 && temp_ip < 256)
+        {
+            status = SUCCESS;
+        }
+
+        split_str = strtok (NULL, ".");
+        count++;
+ 
+    }
+
+    if (count < 4)
+        status = FAILURE;
+
+    free(ip_addr);
+    return status;
+}
+
 
 /* Function: error() - To print error message 
  * in parameters: 
@@ -292,8 +383,6 @@ int add_entry(struct node** head, char* key, int key_len, char* value, int value
 { 
     struct node* new_node = (struct node*) malloc(sizeof(struct node)); 
   
-    struct node *last = *head;
-
     if (NULL == new_node)
         return FAILURE;
 
@@ -306,20 +395,20 @@ int add_entry(struct node** head, char* key, int key_len, char* value, int value
     strncpy(new_node->value, value, value_len);
     value[value_len] ='\0';
 
-    new_node->next = NULL; 
   
     printf("\nset value success: added new key:%s and new value:%s\n", new_node->key,new_node->value);
 
     if (*head == NULL) 
     { 
        *head = new_node; 
+        new_node->next = NULL; 
+
        return SUCCESS; 
     }   
-       
-    while (last->next != NULL) 
-        last = last->next; 
-   
-    last->next = new_node;
+    /* add new node at head*/   
+    new_node->next = *head; 
+    *head = new_node; 
+
     return SUCCESS;
 } 
 
@@ -391,37 +480,26 @@ int del_entry(struct node **head, char *key, int length)
 void del_all_entry(struct node **head)
 {
   struct node *temp = *head;
-  struct node *prev = NULL;
 
   while(temp != NULL)
   {
-    if (prev == NULL && temp->next == NULL)
+    if (temp->next == NULL)
     {
         /* Only one node case*/
-        head = NULL;
         printf("\nDelete operation success, key freed:%s",temp->key);
         free(temp->key);
         free(temp->value);
         free(temp);
+        break;
     }
-    else if(prev == NULL && temp->next != NULL)
-    { 
-        /*If the node is the head*/
+    else
+    {
         *head = temp->next;
         printf("\nDelete operation success, key freed:%s",temp->key);
         free(temp->key);
         free(temp->value);
         free(temp);
     }
-    else
-    {
-        prev->next = temp->next;
-        printf("\nDelete operation success, key freed:%s",temp->key);
-        free(temp->key);
-        free(temp->value);
-        free(temp);
-    }
-    prev = temp;
     temp = temp->next;
   }
 }
