@@ -10,6 +10,8 @@
  *     --get <key>
  *  - To delete a key-value pair from Server db
  *     --del <key>
+ *  - To stop server and delete all entries
+ *      --fin fin
  *
  *  Author: Kapil
  *
@@ -28,8 +30,18 @@
 #define MAXLINE 1024 
 #define MAXCHAR 256
 
+#define IPADDR 1
+#define PORTNUM 2
+
+#define MIN_PORTNO 1
+#define MAX_PORTNO 65535
+
+#define FAILURE -1
+#define SUCCESS 0
+
 /* Function prototypes*/
 void error(char *msg);
+int validate_ip_addr(char *ip_addr);
 
 /* main function*/
 int main(int argc, char **argv) 
@@ -37,9 +49,9 @@ int main(int argc, char **argv)
     int sockfd; 
     int portno;
     int num_bytes;
-    int i; 
-    char ip_addr[15];
-    char port_num[15];
+    int count = 1;
+    char *ip_addr;
+    char *port_num;
     char buffer[MAXLINE]; 
     char *split_str;
     struct sockaddr_in servaddr; 
@@ -51,6 +63,7 @@ int main(int argc, char **argv)
       printf("usage: %s --server <ipaddress>:<port> --get <key>\n", argv[0]);
       printf("usage: %s --server <ipaddress>:<port> --set <key> <value>\n", argv[0]);
       printf("usage: %s --server <ipaddress>:<port> --del <key>\n", argv[0]);
+      printf("usage: %s --server <ipaddress>:<port> --fin fin\n", argv[0]);
 
       error("Incorrect Input");
     }
@@ -60,7 +73,7 @@ int main(int argc, char **argv)
         error("Incorrect Input : --server expected");
     }
 
-    if (!(strncmp(argv[3],"--set",5)==0 || strncmp(argv[3],"--get",5)==0 || strncmp(argv[3],"--del",5)==0))
+    if (!(strncmp(argv[3],"--set",5)==0 || strncmp(argv[3],"--get",5)==0 || strncmp(argv[3],"--del",5)==0 || strncmp(argv[3],"--fin",5)==0))
     {
         error("Incorrect Input : --set or --get or --del expected");
     }
@@ -79,7 +92,7 @@ int main(int argc, char **argv)
         error("Incorrect Input : --del <key> expected");
     }
 
-    /* Max limit fo 256 Characters*/
+    /* Max limit of 256 Characters*/
     if (strlen(argv[4]) > MAXCHAR)
     {
         error("Incorrect Input : Key length >256");
@@ -88,39 +101,52 @@ int main(int argc, char **argv)
     {
         error("Incorrect Input : value length >256");
     }
-
-    /* ASCII characters allowed validation*/
-    if (strncmp(argv[3],"--set",5)==0)
-    {
-        for (i=0; i<strlen(argv[4]); i++)
-        {
-            /* Don't allow space, ~!@#$%^&*() characters in --set, refer ASCII table for allowed characters*/
-            if (argv[4][i] == 32 || (argv[4][i] >0 && argv[4][i] <=47) || (argv[4][i] >123 && argv[4][i] <=127))
-            {
-                printf("\ncharacter:%c", argv[4][i]);
-                error("Invalid Characters used for set, please enter again");
-            }
-        }
-    }
     /* End of validation*/
 
-    /*Separating ipaddr and portno from <ipaddr>:<portno> format*/
+    /*Separating ipaddr and portno from <ipaddr>:<portno> format*/    
     split_str = strtok(argv[2],":");
-    strncpy(ip_addr,split_str,strlen(split_str));
-    ip_addr[strlen(split_str)]='\0';
-    
+
     while (split_str != NULL)
     {
-        strncpy(port_num,split_str,strlen(split_str));
-        port_num[strlen(split_str)]='\0';
-        split_str = strtok (NULL, " :");
+        switch (count)
+        {
+            case IPADDR:
+                ip_addr = (char*)malloc(strlen(split_str)+1);
+                strncpy(ip_addr,split_str,strlen(split_str)+1);
+                ip_addr[strlen(split_str)]='\0';
+            break;
+
+            case PORTNUM:
+                port_num = (char*)malloc(strlen(split_str)+1);
+                strncpy(port_num,split_str,strlen(split_str)+1);
+                port_num[strlen(split_str)]='\0';
+            break;
+
+            default:
+            break;
+        }
+        split_str = strtok (NULL, ":");
+        count++; 
     }
 
     /* Validation of ip address and port number*/
-    if (port_num == NULL || ip_addr == NULL || strlen(ip_addr) < 7 || strlen(port_num)<2)
-        error("\nERROR: Incorrect IP addr and port input");
-    
-    portno = atoi(port_num);
+    if (port_num == NULL || ip_addr == NULL)
+    {
+        error("Incorrect IP addr and port input");
+    }
+    else
+    {
+        portno = atoi(port_num);
+        
+        if (portno < MIN_PORTNO || portno > MAX_PORTNO)
+        {
+            error("portnumber invalid");
+        }
+        if(validate_ip_addr(ip_addr) != 0)
+        {
+            error("ip_address invalid");
+        }
+    }
     printf("\nPort number:%d, ipaddr:%s",portno, ip_addr);
 
 
@@ -164,10 +190,61 @@ int main(int argc, char **argv)
     buffer[num_bytes] = '\0'; 
     
     printf("Server response: %s\n", buffer); 
-
+    free(ip_addr);
+    free(port_num);
     close(sockfd);
     return 0;
 } 
+
+/* Function: validate_ip_addr() - To validate IP addr 
+ * in parameters: 
+ *   ip_addr_in - IP addr to be validated
+ *
+ * return:
+ *   status of validation
+ */
+
+int validate_ip_addr(char *ip_addr_in)
+{
+    char *split_str;
+    int count = 0;
+    int temp_ip=0;
+    int status = 0;
+    char *ip_addr;
+
+    ip_addr = (char*)malloc(strlen(ip_addr_in)+1);
+    strncpy(ip_addr,ip_addr_in,strlen(ip_addr_in)+1);
+
+   /*Separating ipaddr based on <num>.<num>.<num>.<num> format*/      
+    split_str = strtok(ip_addr,".");
+
+    while (split_str != NULL)
+    {
+        status = FAILURE;
+
+        /* Only 3 dots in IP addr*/
+        if(count > 3)
+            break;
+
+        temp_ip = atoi(split_str);
+
+        if(temp_ip>=0 && temp_ip < 256)
+        {
+            status = SUCCESS;
+        }
+
+        split_str = strtok (NULL, ".");
+        count++;
+ 
+    }
+
+    if (count < 4)
+        status = FAILURE;
+    
+    free(ip_addr);
+    return status;
+}
+
 
 /* Function: error() - To print error message 
  * in parameters: 
